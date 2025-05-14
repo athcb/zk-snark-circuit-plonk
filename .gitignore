@@ -17,9 +17,13 @@ node_modules
 ignition/deployments/chain-31337
 
 # Ignore ptau files
-*.ptau
+trusted-setup/*.ptau
 
 # Circom build output
 build/
+
+# Circomlib
+circuits/circomlib
+
 
 
