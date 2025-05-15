@@ -21,7 +21,7 @@
 
 pragma solidity >=0.7.0 <0.9.0;
 
-contract PlonkVerifier {
+contract PasswordVerifier {
     // Omega
     uint256 constant w1 = 6837567842312086091520287814181175430087169027974246751610506942214842701774;    
     // Scalar field size
