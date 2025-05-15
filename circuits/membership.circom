@@ -31,19 +31,19 @@ template MembershipProof(treeLevels) {
     signal input leaf;
 
     /**
-     * @notice siblings: the sibling nodes of the current hash at each tree level (layer).
+     * @notice pathElements: the sibling nodes of the current hash at each tree level (layer).
      * @dev The current hash needs to be combined with the sibling node at each layer.
-     * @dev A new hash value is then computed: Hash(current hash + sibling hash) OR Hash(sibling hash + current hash).
+     * @dev A new hash value is then computed: Hash(current hash + pathElements hash) OR Hash(pathElements hash + current hash).
      */
-    signal input siblings[treeLevels];
+    signal input pathElements[treeLevels];
 
     /**
-     * @notice hashPosition: the position (left or right) of the current hash compared to the sibling node at each layer.
+     * @notice pathIndices: the position (left or right) of the current hash compared to the sibling node at each layer.
      * @dev 0 == left and 1 == right. 
      * @dev If left, then compute Hash(current hash + sibling hash). 
      * @dev If right, then compute Hash(sibling hash + current hash).
      */
-    signal input hashPosition[treeLevels];
+    signal input pathIndices[treeLevels];
 
     /**
      * @notice isMember output signal: outputs a boolean indicating whether the address is part of the Merkle tree.
@@ -75,7 +75,7 @@ template MembershipProof(treeLevels) {
 
     /**
      * @notice Signals holding boolean values that indicate if the currentHash is on the left or right child node.
-     * @dev Derived from the values in hashPosition[treeLevels].
+     * @dev Derived from the values in pathIndices[treeLevels].
      */
     signal isLeft[treeLevels];
     signal isRight[treeLevels];
@@ -95,22 +95,22 @@ template MembershipProof(treeLevels) {
          */
         hashValues[i] = Poseidon(2);
 
-        isLeft[i] <== 1 - hashPosition[i];
-        isRight[i] <== hashPosition[i];
+        isLeft[i] <== 1 - pathIndices[i];
+        isRight[i] <== pathIndices[i];
         
         /**
          * @notice Assigns the hash on the left node to "left".
-         * @dev When isLeft = 1, left = currentHash[i]. When isLeft = 0, left = siblings[i]. 
+         * @dev When isLeft = 1, left = currentHash[i]. When isLeft = 0, left = pathElements[i]. 
          */
         left_a[i] <== isLeft[i] * currentHash[i];
-        left_b[i] <== isRight[i] * siblings[i];
+        left_b[i] <== isRight[i] * pathElements[i];
         left[i] <== left_a[i] + left_b[i];
 
         /**
          * @notice Assigns the hash on the right node to "right".
-         * @dev When isLeft = 1, right = siblings[i]. When isLeft = 0, right = currentHash[i]. 
+         * @dev When isLeft = 1, right = pathElements[i]. When isLeft = 0, right = currentHash[i]. 
          */
-        right_a[i] <== isLeft[i] * siblings[i];
+        right_a[i] <== isLeft[i] * pathElements[i];
         right_b[i] <== isRight[i] * currentHash[i];
         right[i] <== right_a[i] + right_b[i];
         
@@ -147,7 +147,7 @@ template MembershipProof(treeLevels) {
 /**
  * @notice Creates an instance of the MembershipProof template to prepare it for compilation.
  * @dev The tree levels have to be set to a fixed size. 
- * @dev The inputs siblings and hashPosition have to be padded to that size even if the actual tree is shallower.
+ * @dev The inputs pathElements and pathIndices have to be padded to that size even if the actual tree is shallower.
  * @dev Declares the root signal as public.
  */
 component main {public [root]} = MembershipProof(5);

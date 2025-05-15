@@ -12,6 +12,13 @@ It includes all the steps in order to:
 
 Versions: circom 2.2.2 (built from source https://github.com/iden3/circom.git), snarkjs 0.7.5
 
+
+# PLONK vs Groth16
+
+The advantage of PLONK over the Groth16 protocol is that the trusted setup can be reused across multiple circuits instead of it being circuit-specific like Groth16. 
+
+This makes it very flexible for projects involving multiple circuits or circuits whose parameters may change over time.
+
 ## Circuit Logic Overview
 
 ### 1. Password hash proof
@@ -94,13 +101,6 @@ The result is output as isMember:
 - isMember = 1: Proof is valid (leaf is in the tree)
 
 - isMember = 0: Invalid proof
-
-
-# PLONK vs Groth16
-
-The advantage of PLONK over the Groth16 protocol is that the trusted setup can be reused across multiple circuits instead of it being circuit-specific like Groth16. 
-
-This makes it very flexible for projects involving multiple circuits or circuits whose parameters may change over time.
 
 ## 1. Create the circuits in circom
 
@@ -407,8 +407,12 @@ Generate the circuit-specific proving key and verification keys (zKey):
 ```bash
 snarkjs plonk setup build/password-circuit/password.r1cs  trusted-setup/pot12_final.ptau build/password-circuit/password_final.zkey
 ```
-Unlike Groth16, the verification key is included in the zKey file alogng with the proving key and it is not exported separately. 
 
+Export the verification key:
+
+```bash
+snarkjs zkey export verificationkey build/password-circuit/password_final.zkey build/password-circuit/password_key.json
+```
 
 To generate the keys for both circuits:
 
