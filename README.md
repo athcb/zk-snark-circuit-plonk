@@ -1,17 +1,100 @@
-# zk-SNARK Proof Implementation Guide
+# zk-SNARK Proofs with the PLONK protocol
 
-The following is meant to serve as an example on how to generate and verify a zk-SNARK proof on- and off-chain using the **PLONK** protocol.
+This project is meant to serve as a guide on how to generate and verify a zk-SNARK proof on- and off-chain using the **PLONK** protocol.
 
-It includes all the needed steps in order to:
-- create the circom circuit 
-- use the PLONK protocol and the **bn128 elliptic curve** for the trusted setup (Powers of Tau)
+It includes all the steps in order to:
+- create the **circom circuits**
+- use the **PLONK** protocol and the **bn128 elliptic curve** for the **trusted setup** (Powers of Tau)
 - generate the **proving and verification keys**
 - generate the **witness** based on the given inputs
 - generate the **proof** 
-- **verify** the proof (on chain and off chain)
-
+- **verify** the proof (on-chain and off-chain)
 
 Versions: circom 2.2.2 (built from source https://github.com/iden3/circom.git), snarkjs 0.7.5
+
+## Circuit Logic Overview
+
+### 1. Password hash proof
+
+This circuit demonstrates a zero-knowledge proof of password knowledge using the Poseidon hash function from circomlib.
+
+#### Purpose 
+The PasswordHash circuit allows a prover to demonstrate knowledge of a secret password without revealing it. The only public values are:
+
+- A Poseidon hash of the salted password
+
+- The salt 
+
+The verifier can confirm that the prover knows the password corresponding to the provided hash and salt, without learning anything about the password itself.
+
+#### Inputs
+
+- `publicHash` (public): The expected Poseidon hash of the password + salt.
+
+- `salt` (public): A public salt value (can be made private if needed).
+
+- `password` (private): The secret password known only to the prover.
+
+#### Computation
+
+The password is salted by computing:
+
+```circom
+salted <== password + salt;
+```
+The salted value is hashed using the Poseidon hash function:
+
+```circom
+computedHash <== Poseidon(1)([salted]);
+```
+#### Constraint
+
+The circuit enforces that:
+
+```circom
+publicHash === computedHash;
+```
+This ensures that the prover must provide the correct password such that, when salted and hashed, it matches the known public hash.
+
+### 2. Membership proof
+
+The MembershipProof circuit allows a prover to demonstrate membership in a Merkle tree without revealing their identity or leaf value. This is achieved using a Merkle proof and the Poseidon hash function.
+
+#### Purpose 
+The circuit verifies that a hashed address is included in a known Merkle tree represented by a public Merkle root. It does this without revealing the leaf or any internal hashes.
+
+#### Inputs
+- `root` (public): The known Merkle root of the tree.
+
+- `leaf` (private): The hashed value that we want to prove is part of the tree.
+
+- `siblings[treeLevels]` (private): Array of sibling nodes in the Merkle proof path.
+
+- `hashPosition[treeLevels]` (private): Position indicators (0 = left, 1 = right) at each level of the tree.
+
+The circuit uses the parameter `treeLevels` (set to 20 in the main component), which defines the depth of the Merkle tree. All Merkle proofs provided must be padded to match this depth.
+
+#### Computation 
+
+The circuit reconstructs the Merkle root by:
+
+- Starting with currentHash[0] = leaf
+
+- Iteratively hashing the current node with its sibling, left or right depending on `hashPosition`.
+
+- At each layer i, a Poseidon hash of the left and right nodes is computed
+- The order of concatenation is controlled by the `isLeft` and `isRight` signals derived from hashPosition.
+
+#### Constraint
+
+After traversing all treeLevels, the final hash is compared to the public root using the IsEqual comparator from circomlib.
+
+The result is output as isMember:
+
+- isMember = 1: Proof is valid (leaf is in the tree)
+
+- isMember = 0: Invalid proof
+
 
 # PLONK vs Groth16
 
@@ -19,22 +102,11 @@ The advantage of PLONK over the Groth16 protocol is that the trusted setup can b
 
 This makes it very flexible for projects involving multiple circuits or circuits whose parameters may change over time.
 
-In this repository PLONK is used for two circuits:
-
-### 1. Password hash proof
-
-**Goal:** Prove knowledge of a password that results in a given (public) hash without revealing the password itself.
-
-### 2. Membership proof
-
-**Goal:** Verify that an address belongs to a group represented by a Merkle tree, without revealing the address itself.
-
 ## 1. Create the circuits in circom
 
 Formulate the input, output variables as well as the needed contraints for the two circuits.
 
-```
-To use the circomlib functions (in this case the Poseidon hash and the IsEqual component), add the library as a submodule within the repository:
+To use the circomlib functions (in this case the Poseidon hash and the IsEqual component), add the library in the circuits/ repository:
 ```bash
 git submodule add https://github.com/iden3/circomlib.git circomlib
 ```
