@@ -33,12 +33,10 @@ async function main() {
         tree.insert(leaf);
     }
     
-    // get the proof for a given leaf
+    // get the proof for a the leaf at index 0
     const index = 0;
     const leafValue = hashedLeaves[index];
     const proof = tree.createProof(index);
-
-    //console.log("proof: ", proof);
     
     // create the object with the inputs for the circuit
     const circuitInputs = {
@@ -53,6 +51,24 @@ async function main() {
     // save the inputs to file
     const filePath = "inputs/membership_input_LIMT.json";
     fs.writeFileSync(filePath, JSON.stringify(circuitInputs, null, 2));
+
+    // create a FALSE proof for testing purposes
+    // create the object with the same inputs for the circuit BUT with an altered leaf value
+    // add 1 to the original leafValue (the circuit should compute a non-matching root if it starts with an different leaf value)
+    const leafValueFalse = hashedLeaves[index] + BigInt(1);
+
+    const circuitInputsFalse = {
+        root: tree.root.toString(),
+        leaf: leafValueFalse.toString(), 
+        pathElements: proof.siblings.map( x => x[0].toString()),
+        pathIndices: proof.pathIndices
+    };
+
+    // save the inputs to file
+    const filePathFalse = "inputs/membership_input_FALSEPROOF.json";
+    fs.writeFileSync(filePathFalse, JSON.stringify(circuitInputsFalse, null, 2));
+
+    console.log("FALSE Circuit inputs: ", circuitInputsFalse);
 
 }
 

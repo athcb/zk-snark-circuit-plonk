@@ -75,11 +75,11 @@ The circuit verifies that a hashed address is included in a known Merkle tree re
 
 - `leaf` (private): The hashed value that we want to prove is part of the tree.
 
-- `siblings[treeLevels]` (private): Array of sibling nodes in the Merkle proof path.
+- `pathElements[treeLevels]` (private): Array of sibling nodes in the Merkle proof path.
 
-- `hashPosition[treeLevels]` (private): Position indicators (0 = left, 1 = right) at each level of the tree.
+- `pathIndices[treeLevels]` (private): Position indicators (0 = left, 1 = right) at each level of the tree.
 
-The circuit uses the parameter `treeLevels` (set to 20 in the main component), which defines the depth of the Merkle tree. All Merkle proofs provided must be padded to match this depth.
+The circuit uses the parameter `treeLevels` (set to 5 in the main component), which defines the depth of the Merkle tree. All Merkle proofs provided must be padded to match this depth.
 
 #### Computation 
 
@@ -87,10 +87,10 @@ The circuit reconstructs the Merkle root by:
 
 - Starting with currentHash[0] = leaf
 
-- Iteratively hashing the current node with its sibling, left or right depending on `hashPosition`.
+- Iteratively hashing the current node with its sibling, left or right depending on `pathIndices`.
 
 - At each layer i, a Poseidon hash of the left and right nodes is computed
-- The order of concatenation is controlled by the `isLeft` and `isRight` signals derived from hashPosition.
+- The order of concatenation is controlled by the `isLeft` and `isRight` signals derived from pathIndices.
 
 #### Constraint
 
@@ -101,6 +101,13 @@ The result is output as isMember:
 - isMember = 1: Proof is valid (leaf is in the tree)
 
 - isMember = 0: Invalid proof
+
+A constraint is added in the circuit for isMember such that its value is enforced to be 1:
+
+```circom
+isMember === 1;
+```
+Without this constraint false proofs can be generated and the restriction isMember = 1 would have to be enforced elsewhere for false proof not to be accepted.
 
 ## 1. Create the circuits in circom
 
@@ -201,19 +208,19 @@ template MembershipProof(treeLevels) {
     signal input leaf;
 
     /**
-     * @notice siblings: the sibling nodes of the current hash at each tree level (layer).
+     * @notice pathElements: the sibling nodes of the current hash at each tree level (layer).
      * @dev The current hash needs to be combined with the sibling node at each layer.
-     * @dev A new hash value is then computed: Hash(current hash + sibling hash) OR Hash(sibling hash + current hash).
+     * @dev A new hash value is then computed: Hash(current hash + pathElements hash) OR Hash(pathElements hash + current hash).
      */
-    signal input siblings[treeLevels];
+    signal input pathElements[treeLevels];
 
     /**
-     * @notice hashPosition: the position (left or right) of the current hash compared to the sibling node at each layer.
+     * @notice pathIndices: the position (left or right) of the current hash compared to the sibling node at each layer.
      * @dev 0 == left and 1 == right. 
      * @dev If left, then compute Hash(current hash + sibling hash). 
      * @dev If right, then compute Hash(sibling hash + current hash).
      */
-    signal input hashPosition[treeLevels];
+    signal input pathIndices[treeLevels];
 
     /**
      * @notice isMember output signal: outputs a boolean indicating whether the address is part of the Merkle tree.
@@ -245,7 +252,7 @@ template MembershipProof(treeLevels) {
 
     /**
      * @notice Signals holding boolean values that indicate if the currentHash is on the left or right child node.
-     * @dev Derived from the values in hashPosition[treeLevels].
+     * @dev Derived from the values in pathIndices[treeLevels].
      */
     signal isLeft[treeLevels];
     signal isRight[treeLevels];
@@ -265,22 +272,22 @@ template MembershipProof(treeLevels) {
          */
         hashValues[i] = Poseidon(2);
 
-        isLeft[i] <== 1 - hashPosition[i];
-        isRight[i] <== hashPosition[i];
+        isLeft[i] <== 1 - pathIndices[i];
+        isRight[i] <== pathIndices[i];
         
         /**
          * @notice Assigns the hash on the left node to "left".
-         * @dev When isLeft = 1, left = currentHash[i]. When isLeft = 0, left = siblings[i]. 
+         * @dev When isLeft = 1, left = currentHash[i]. When isLeft = 0, left = pathElements[i]. 
          */
         left_a[i] <== isLeft[i] * currentHash[i];
-        left_b[i] <== isRight[i] * siblings[i];
+        left_b[i] <== isRight[i] * pathElements[i];
         left[i] <== left_a[i] + left_b[i];
 
         /**
          * @notice Assigns the hash on the right node to "right".
-         * @dev When isLeft = 1, right = siblings[i]. When isLeft = 0, right = currentHash[i]. 
+         * @dev When isLeft = 1, right = pathElements[i]. When isLeft = 0, right = currentHash[i]. 
          */
-        right_a[i] <== isLeft[i] * siblings[i];
+        right_a[i] <== isLeft[i] * pathElements[i];
         right_b[i] <== isRight[i] * currentHash[i];
         right[i] <== right_a[i] + right_b[i];
         
@@ -312,12 +319,19 @@ template MembershipProof(treeLevels) {
      * @dev returns true if the computed root hash matches the known Merkle root.
      */
     isMember <== checkEquality.out;
+
+    /**
+     * @notice Adds a contraint to the isMember flag.
+     * @dev isMember has to be equal to 1 (i.e., the leaf has to be a valid member).
+     * @dev without this constraint the circuit will only output 0 or 1 without enforcing either value.
+     */
+    isMember === 1;
 }
 
 /**
  * @notice Creates an instance of the MembershipProof template to prepare it for compilation.
  * @dev The tree levels have to be set to a fixed size. 
- * @dev The inputs siblings and hashPosition have to be padded to that size even if the actual tree is shallower.
+ * @dev The inputs pathElements and pathIndices have to be padded to that size even if the actual tree is shallower.
  * @dev Declares the root signal as public.
  */
 component main {public [root]} = MembershipProof(5);
@@ -611,6 +625,14 @@ To generate the wtns and the witness.json file run:
 ./6_generateWitness.sh
 ```
 
+Any attempt to generate a witness for a false proof will fail, throwing an error:
+
+```bash
+[ERROR] snarkJS: Error: Error: Assert Failed.
+```
+
+The assert refers to the constraint that isMember has to equal 1.
+
 ### 5. Generate the proof
 
 Use the witness and the final .zkey to generate the proof without revealing the secret value:
@@ -696,5 +718,122 @@ console.log("MembershipVerifier contract deployed to address: ", membershipVerif
 
 ...
 ```
+
+**MembershipVerifier contract address on Sepolia:**
+`0x62Cc1dc5B553DF2FC73062f017c7C1eC4383e880`
+
+### 3. Generate the calldata
+
+To generate the calldata for the .verifyProof method in the Verifier contract:
+
+```bash
+snarkjs zkesc build/membership-circuit/public.json build/membership-circuit/proof.json
+```
+The calldata output has the following format: output is in the format: [proofString][publicSignalsArray]
+
+or within a js script:
+
+```javascript
+const calldata = await snarkjs.plonk.exportSolidityCallData(proof, publicSignals);
+```
+where proof and publicSignals are the parsed data from proof.json and public.json.
+
+### 4. Verify the proof
+
+
+Verify the proof by calling the verifyProof method of the deployed membershipVerifier contract.
+
+*scripts/verifyMembershipProof:*
+
+generate the Solidity calldata:
+```javascript
+...
+// export the calldata using the PLONK protocol:
+// output is in the format [proofString][publicSignalsArray]
+const rawCalldata = await snarkjs.plonk.exportSolidityCallData(proof, publicSignals);
+...
+```
+Reformat the calldata and call the verifyProof method:
+
+```javascript
+...
+const isValidProof = await verifier.verifyProof(
+    _proof,
+    _publicSignals
+);
+
+if(isValidProof) {
+    console.log("Proof accepted!")
+} else {
+    console.log("Proof rejected!")
+}
+...
+```
+
+# Complete zk-SNARK Workflow
+
+The whole workflow including
+1. Circuit compilation 
+2. PLONK trusted setup
+3. Proving and verification key generation
+4. Solidity verifier contract export
+5. Input values creation (dummy circuit inpus)
+6. Witness generation
+7. Proof generation
+8. Proof verification (off-chain & on-chain)
+can be run with the executable bash scripts 
+
+-  runZkSnarkWorkflow_1to4.sh:
+```bash
+#!/bin/bash
+
+./1_compileCircuit.sh
+
+./2_createTrustedSetup.sh
+
+./3_generateKeys.sh
+
+./4_exportVerifierContract.sh
+```
+*Note: running the above more than once will produce different keys and different contracts that will have to be re-deployed and steps 5 to 8 will also have to be repeated!*
+
+- runZkSnarkWorkflow_5to8.sh: 
+
+```bash
+#!/bin/bash
+
+./5_generateCircuitInputs.sh
+
+./6_generateWitness.sh
+
+./7_generateProof.sh
+
+./8_verifyProof.sh
+
+```
+
+To test new input values:
+1. change the scripts/createMerkleTree.js script and the data/addresses.json with your chosen dummy values
+2. execute runZkSnarkWorkflow_5to8.sh 
+
+If the proof is accepted both on chain and off-chain the scripts will output:
+```bash
+--------------------------------
+Verifying the proof off-chain...
+--------------------------------
+[INFO]  snarkJS: OK!
+--------------------------------
+Verifying the proof on-chain...
+--------------------------------
+Proof accepted!
+```
+
+
+
+
+
+
+
+
 
 

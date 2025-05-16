@@ -142,6 +142,13 @@ template MembershipProof(treeLevels) {
      * @dev returns true if the computed root hash matches the known Merkle root.
      */
     isMember <== checkEquality.out;
+
+    /**
+     * @notice Adds a contraint to the isMember flag.
+     * @dev isMember has to be equal to 1 (i.e., the leaf has to be a valid member).
+     * @dev without this constraint the circuit will only output 0 or 1 without enforcing either value.
+     */
+    isMember === 1;
 }
 
 /**
