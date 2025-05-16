@@ -421,3 +421,280 @@ To generate the keys for both circuits:
 ```
 
 
+# MembershipProof Circuit: Off-Chain Verification 
+
+*This section will go through the steps in order to verify the **MembershipProof** circuit off-chain. The steps for the off- and on-chain verification of the PassowrdHash circuit can be found here: https://github.com/athcb/password-hash-zk-proof*
+
+We need an input file that contains values for all private and public signals defined in the circom circuit (in the same order). This file will be used to generate the witness and provide a solution to our circuit (in case of a correct proof).
+
+The signals that need to be part of the input.json file consist of the
+- `root` (public): the publicly known merkle root
+- `leaf` (secret): the leaf for which we are going to submit a proof
+- `pathElements` (secret): the sibling nodes in the path of the Merkle tree
+- `pathIndices` (secret): the indices showing whether we are on the left or right child node
+
+### 1. Prepare a list of addresses
+
+Create a list of (dummy) ethereum addresses that will make up the "members" group. These are the leaves of our tree.
+
+*data/addresses.json:*
+
+```javascript
+{ 
+    "members": [
+        "0xbA4d2018154ac73bD7a0884822e2dF227A0FE6Ac",
+        "0x0bd012c218b52A84705FCf923e1F183283bAa235",
+        "0x0bd012c218b52A84705FCf923e1F183283bAa236"
+    ]
+}
+```
+
+### 2. Hash the leaves
+
+The leaves need to be hashed before using them as an input to the Merkle Tree. We are working with the Poseidon hash, since it is highly optimized for ZK-Circuits. 
+
+The addresses are parsed, formatted, hashed and saved to data/hashedLeaves.json.
+
+*scripts/createHashedLeaves.js:*
+```javascript
+...
+
+const poseidon = await circomlib.buildPoseidon();
+const leaves = addrBigInt.map( addr => poseidon.F.toObject(poseidon([addr])));
+console.log("Poseidon hashed addresses: ", leaves);
+
+// store hashed leaves:
+fs.writeFileSync("data/hashedLeaves.json", JSON.stringify(leaves.map( leaf => leaf.toString() ), null, 2 ));
+
+...
+```
+
+### 3. Create the Merkle Tree
+
+To construct the Merkle Tree based on the list of the members addresses, the following libraries were tested: 
+
+- incremental-merkle-tree by zk-kit: https://www.npmjs.com/package/@zk-kit/incremental-merkle-tree, https://github.com/privacy-scaling-explorations/zk-kit
+- fixed-merkle-tree by TornadoCash: https://github.com/tornadocash/fixed-merkle-tree
+
+**Improtant considerations**
+- the tree has to be padded to a "fixed" depth, the same one as defined in the circom circuit. 
+
+If the circuit is compiled with a depth of 5 tree layers, it means that the tree will have 2**5 = 32 leaves. Given that our address list contains 3 entries, the rest of the leaves will have to be filled with default values (usually zeros) until all 32 slots are filled.
+
+When using the zk-kit package: 
+- the arity has to be defined: number of inputs for the Poseidon hash function
+- the zeroElement (default value)
+
+*scripts/createMerkleTree-LIMT:*
+
+```javascript
+...
+
+const tree = new IncrementalMerkleTree(hashFn, treeDepth, BigInt(zeroElement), arity);
+
+// insert the leaves into the initialized tree
+for (const leaf of hashedLeaves) {
+    tree.insert(leaf);
+    }
+
+...
+```
+
+After the Merkle Tree is created, we can get the Merkle proofs for given leafs.
+
+*scripts/createMerkleTree-LIMT:*
+
+```javascript
+// get the proof for a given leaf
+const index = 0;
+const leafValue = hashedLeaves[index];
+const proof = tree.createProof(index);
+
+// create the object with the inputs for the circuit
+const circuitInputs = {
+    root: tree.root.toString(),
+    leaf: leafValue.toString(), 
+    pathElements: proof.siblings.map( x => x[0].toString()),
+    pathIndices: proof.pathIndices
+};
+
+```
+The circuitInputs will be the input values for our circuit and they are saved to inputs/membership_input.json.
+
+To produce the input files for the leaf at index 0 using both Merkle Tree libraries run:
+
+```bash
+./5_generateCircuitInputs.sh
+```
+The Merkle proof we get from both libraries is identical:
+
+```bash
+Using Fixed-Merkle-Tree by TornadoCash:
+---------------------------------------
+Generating the merkle tree and dummy input values for circuit...
+Circuit inputs:  {
+  root: '11858598932349307318361014181872134183220323343349862538770939111541755948084',
+  leaf: '18662699083581515132053402159012902122836088572548263913977277506910134734312',
+  pathElements: [
+    '14464865694242427692604124877944745271451478127051958408634579331968909957195',
+    '19859404333981083031681342793811032781998967093519865202730802914189513774781',
+    '7423237065226347324353380772367382631490014989348495481811164164159255474657',
+    '11286972368698509976183087595462810875513684078608517520839298933882497716792',
+    '3607627140608796879659380071776844901612302623152076817094415224584923813162'
+  ],
+  pathIndices: [ 0, 0, 0, 0, 0 ]
+}
+Using Incremental-Merkle-Tree by ZK-Kit:
+---------------------------------------
+Generating the merkle tree and dummy input values for circuit...
+Circuit inputs:  {
+  root: '11858598932349307318361014181872134183220323343349862538770939111541755948084',
+  leaf: '18662699083581515132053402159012902122836088572548263913977277506910134734312',
+  pathElements: [
+    '14464865694242427692604124877944745271451478127051958408634579331968909957195',
+    '19859404333981083031681342793811032781998967093519865202730802914189513774781',
+    '7423237065226347324353380772367382631490014989348495481811164164159255474657',
+    '11286972368698509976183087595462810875513684078608517520839298933882497716792',
+    '3607627140608796879659380071776844901612302623152076817094415224584923813162'
+  ],
+  pathIndices: [ 0, 0, 0, 0, 0 ]
+}
+```
+### 4. Generate the witness
+
+Generate the witness with the wtns calculate command
+- creates an output file .wtns which is then used to generate the proof
+- the witness is a complete solution to the circuit. It includes all private, public and intermediate values  from internal wires in the circuit
+- the witness has all the signal values that satisfy the constraints of the r1cs file
+
+```bash
+snarkjs wtns calculate build/membership-circuit/membership_js/membership.wasm \
+                       inputs/membership_input.json \
+                       build/membership-circuit/witness.wtns
+```
+
+Transform the .wtns file into a .json file to inspect its contents: 
+```bash
+snarkjs wtns export json build/membership-circuit/witness.wtns \
+                         build/membership-circuit/witness.json
+``` 
+The witness.json file produces output starting with the following fields:
+
+```javascript
+ // placeholder value
+"1",
+// signal output value
+"1",
+ // tree root (public):
+"11858598932349307318361014181872134183220323343349862538770939111541755948084",
+// leaf (secret):
+"18662699083581515132053402159012902122836088572548263913977277506910134734312",
+// pathElements (5 in total):
+"14464865694242427692604124877944745271451478127051958408634579331968909957195",
+"19859404333981083031681342793811032781998967093519865202730802914189513774781",
+"7423237065226347324353380772367382631490014989348495481811164164159255474657",
+"11286972368698509976183087595462810875513684078608517520839298933882497716792",
+"3607627140608796879659380071776844901612302623152076817094415224584923813162",
+// pathIndices:
+"0",
+"0",
+"0",
+"0",
+"0",
+
+ ......
+```
+
+To generate the wtns and the witness.json file run:
+
+```bash
+./6_generateWitness.sh
+```
+
+### 5. Generate the proof
+
+Use the witness and the final .zkey to generate the proof without revealing the secret value:
+- generates the proof.json file: stores the resulting proof
+- generates the public.json file: stores the public inputs
+- uses the **plonk prove** command to create a proof that satisfies the circuits constraints
+
+```bash
+snarkjs plonk prove build/membership-circuit/membership_final.zkey  \
+                    build/membership-circuit/witness.wtns \
+                    build/membership-circuit/proof.json \
+                    build/membership-circuit/public.json
+```
+
+or run:
+
+```bash
+./7.generateProof.sh
+```
+
+
+### 6. Verify the proof
+
+Verify the proof using the verification key, the public inputs and the proof.
+- uses the **plonk verify** command
+- outputs a console log message with the result of the verification (valid / invalid proof)
+
+```bash
+snarkjs plonk verify build/membership-circuit/verification_key.json \
+                     build/membership-circuit/public.json \
+                     build/membership-circuit/proof.json
+```
+If successfull: 
+
+```bash
+[INFO]  snarkJS: PLONK VERIFIER STARTED
+[INFO]  snarkJS: OK!
+```
+
+
+# MembershipProof: On-Chain Proof Verification 
+
+To verify the proof on-chain we need to:
+1. Generate the Verifier.sol contract 
+2. Deploy the Verifier contract
+3. Generate the calldata 
+4. Interact with the Verifier contract
+
+Hardhat or Foundry can be used for the contract deployment. This project uses Hardhat. 
+
+### 1. Generate the Verifier.sol contract
+
+Use the final proving key (zKey) to generate the verifier contract with **zkey export**:
+- after the verifier contract is deployed, its verifyProof(..) method can be called from other contracts
+- all exported contracts will have the default name "PlonkVerifier". Rename the contract with the command above when running this command for multiple circuits.
+
+```bash
+snarkjs zkey export solidityverifier build/membership-circuit/membership_final.zkey \
+                                     contracts/MembershipVerifier.sol
+
+echo "Renaming the contract from PlonkVerifier to MembershipVerifier..."
+sed -i 's/contract PlonkVerifier/contract MembershipVerifier/' contracts/MembershipVerifier.sol
+
+```
+
+or run:
+```bash
+./4_exportVerifierContract.sh
+```
+
+### 2. Deploy the Verifier contract
+
+To compile and deploy the verifier contract (scripts/deployVerifier.js):
+
+```javascript
+...
+
+const MembershipVerifier = await ethers.getContractFactory("MembershipVerifier");
+const membershipVerifier = await MembershipVerifier.deploy();
+await membershipVerifier.waitForDeployment();
+
+console.log("MembershipVerifier contract deployed to address: ", membershipVerifier.target);
+
+...
+```
+
+
