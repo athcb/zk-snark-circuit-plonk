@@ -743,17 +743,7 @@ where proof and publicSignals are the parsed data from proof.json and public.jso
 
 Verify the proof by calling the verifyProof method of the deployed membershipVerifier contract.
 
-*scripts/verifyMembershipProof:*
-
-generate the Solidity calldata:
-```javascript
-...
-// export the calldata using the PLONK protocol:
-// output is in the format [proofString][publicSignalsArray]
-const rawCalldata = await snarkjs.plonk.exportSolidityCallData(proof, publicSignals);
-...
-```
-Reformat the calldata and call the verifyProof method:
+Reformat the calldata and call the verifyProof method (scripts/verifyMembershipProof):
 
 ```javascript
 ...
