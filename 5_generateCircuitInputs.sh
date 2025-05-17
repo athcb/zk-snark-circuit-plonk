@@ -11,7 +11,7 @@ node scripts/createMerkleTree-FixedMerkleTree.js
 echo "Using Incremental-Merkle-Tree by ZK-Kit:"
 echo "---------------------------------------"
 echo "Generating the merkle tree and dummy input values for circuit..."
-node scripts/createMerkleTree-LIMT.js
+node scripts/createMerkleTree-IMT.js
 
 echo "-----------------"
 echo "- Step 5...Done -"
