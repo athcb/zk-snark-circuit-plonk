@@ -15,7 +15,13 @@ Versions: circom 2.2.2 (built from source https://github.com/iden3/circom.git), 
 
 # PLONK vs Groth16
 
-The advantage of PLONK over the Groth16 protocol is that the trusted setup can be reused across multiple circuits instead of it being circuit-specific like Groth16. 
+The advantage of PLONK over the Groth16 protocol is that the trusted setup can be reused across multiple circuits instead of it being circuit-specific like Groth16. It is 
+- universal and updatable: only one setup is needed per **circuit size** (not circuit)
+- efficient and flexible
+- widely used in Ethereum zk-rollup projects (e.g., zkSync)
+- multiple open-source implementations
+- larger proof size than Groth16 (~288 bytes vs ~128 bytes)
+
 
 This makes it very flexible for projects involving multiple circuits or circuits whose parameters may change over time.
 
